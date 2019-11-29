@@ -37,26 +37,18 @@ pub fn derive(input: TokenStream) -> TokenStream {
     let methods = fields.iter().map(|f| {
         let name = &f.ident;
         let ty = &f.ty;
-        let set_method = if let Some(inner_ty) = get_inner_ty("Option", ty) {
-            quote! {
-                pub fn #name(&mut self, #name: #inner_ty) -> &mut Self {
-                    self.#name = Some(#name);
-                    self
-                }
-            }
+        let (arg_ty, value) = if let Some(inner_ty) = get_inner_ty("Option", ty) {
+            (inner_ty, quote! { std::option::Option::Some(#name) })
         } else if builder_of(f).is_some() {
-            quote! {
-                pub fn #name(&mut self, #name: #ty) -> &mut Self {
-                    self.#name = #name;
-                    self
-                }
-            }
+            (ty, quote! { #name })
         } else {
-            quote! {
-                pub fn #name(&mut self, #name: #ty) -> &mut Self {
-                    self.#name = Some(#name);
-                    self
-                }
+            (ty, quote! { std::option::Option::Some(#name) })
+        };
+
+        let set_method = quote! {
+            pub fn #name(&mut self, #name: #arg_ty) -> &mut Self {
+                self.#name = #value;
+                self
             }
         };
 
@@ -76,9 +68,9 @@ pub fn derive(input: TokenStream) -> TokenStream {
     let builder_fields = fields.iter().map(|f| {
         let name = &f.ident;
         if builder_of(f).is_some() {
-            quote! { #name: vec![] }
+            quote! { #name: std::vec::Vec::new() }
         } else {
-            quote! { #name: None }
+            quote! { #name: std::option::Option::None }
         }
     });
 
@@ -111,8 +103,8 @@ pub fn derive(input: TokenStream) -> TokenStream {
         impl #builder_ident {
             #(#methods)*
 
-            pub fn build(&mut self) -> Result<#ident, Box<dyn std::error::Error>> {
-                Ok(#ident {
+            pub fn build(&mut self) -> std::result::Result<#ident, std::boxed::Box<dyn std::error::Error>> {
+                std::result::Result::Ok(#ident {
                     #(#build_fields,)*
                 })
             }
