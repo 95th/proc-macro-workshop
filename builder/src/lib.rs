@@ -27,6 +27,8 @@ pub fn derive(input: TokenStream) -> TokenStream {
         let ty = &f.ty;
         if get_inner_ty("Option", ty).is_some() {
             quote! { #name: #ty }
+        } else if builder_of(f).is_some() {
+            quote! { #name: #ty }
         } else {
             quote! { #name: std::option::Option<#ty> }
         }
@@ -35,10 +37,17 @@ pub fn derive(input: TokenStream) -> TokenStream {
     let methods = fields.iter().map(|f| {
         let name = &f.ident;
         let ty = &f.ty;
-        if let Some(inner_ty) = get_inner_ty("Option", ty) {
+        let set_method = if let Some(inner_ty) = get_inner_ty("Option", ty) {
             quote! {
                 pub fn #name(&mut self, #name: #inner_ty) -> &mut Self {
                     self.#name = Some(#name);
+                    self
+                }
+            }
+        } else if builder_of(f).is_some() {
+            quote! {
+                pub fn #name(&mut self, #name: #ty) -> &mut Self {
+                    self.#name = #name;
                     self
                 }
             }
@@ -49,60 +58,33 @@ pub fn derive(input: TokenStream) -> TokenStream {
                     self
                 }
             }
-        }
-    });
+        };
 
-    let each_methods = fields.iter().filter_map(|f| {
-        let name = &f.ident;
-        let ty = &f.ty;
-        for attr in &f.attrs {
-            if attr.path.segments.len() == 1 && attr.path.segments[0].ident == "builder" {
-                if let Some(proc_macro2::TokenTree::Group(g)) = attr.tokens.clone().into_iter().next() {
-                    let mut token = g.stream().into_iter();
-                    match token.next().unwrap() {
-                        proc_macro2::TokenTree::Ident(ident) => assert_eq!(ident, "each"),
-                        tt => panic!("Expected 'each', found {}", tt),
-                    }
-                    match token.next().unwrap() {
-                        proc_macro2::TokenTree::Punct(punct) => assert_eq!(punct.as_char(), '='),
-                        tt => panic!("Expected '=', found {}", tt),
-                    }
-                    let arg = match token.next().unwrap() {
-                        proc_macro2::TokenTree::Literal(lit) => lit,
-                        tt => panic!("Expected literal, found {}", tt),
-                    };
-                    match syn::Lit::new(arg) {
-                        syn::Lit::Str(s) => {
-                            let ident = syn::Ident::new(&s.value(), s.span());
-                            if let Some(inner_ty) = get_inner_ty("Vec", ty) {
-                                return Some(quote! {
-                                    pub fn #ident(&mut self, #ident: #inner_ty) -> &mut Self {
-                                        if let Some(v) = self.#name {
-                                            v.push(#ident);
-                                        } else {
-                                            self.#name = vec![#ident];
-                                        }
-                                        self
-                                    }
-                                });
-                            }
-                        },
-                        tt => panic!("Expected string, found {:?}", tt)
-                    }
-                }
+        match get_each_method(f) {
+            None => set_method.into(),
+            Some((true, each_method)) => each_method,
+            Some((false, each_method)) => {
+                let methods = quote! {
+                    #set_method
+                    #each_method
+                };
+                methods.into()
             }
         }
-        None
     });
 
     let builder_fields = fields.iter().map(|f| {
         let name = &f.ident;
-        quote! { #name: None }
+        if builder_of(f).is_some() {
+            quote! { #name: vec![] }
+        } else {
+            quote! { #name: None }
+        }
     });
 
     let build_fields = fields.iter().map(|f| {
         let name = &f.ident;
-        if get_inner_ty("Option", &f.ty).is_some() {
+        if get_inner_ty("Option", &f.ty).is_some() || builder_of(f).is_some() {
             quote! {
                 #name: self.#name.clone()
             }
@@ -129,8 +111,6 @@ pub fn derive(input: TokenStream) -> TokenStream {
         impl #builder_ident {
             #(#methods)*
 
-            #(#each_methods)*
-
             pub fn build(&mut self) -> Result<#ident, Box<dyn std::error::Error>> {
                 Ok(#ident {
                     #(#build_fields,)*
@@ -140,6 +120,52 @@ pub fn derive(input: TokenStream) -> TokenStream {
     };
 
     expanded.into()
+}
+
+fn builder_of(f: &syn::Field) -> Option<proc_macro2::Group> {
+    for attr in &f.attrs {
+        if attr.path.segments.len() == 1 && attr.path.segments[0].ident == "builder" {
+            if let Some(proc_macro2::TokenTree::Group(g)) = attr.tokens.clone().into_iter().next() {
+                return Some(g);
+            }
+        }
+    }
+    None
+}
+
+fn get_each_method(f: &syn::Field) -> Option<(bool, proc_macro2::TokenStream)> {
+    let name = &f.ident;
+    let ty = &f.ty;
+    let g = builder_of(f)?;
+
+    let mut token = g.stream().into_iter();
+    match token.next().unwrap() {
+        proc_macro2::TokenTree::Ident(ident) => assert_eq!(ident, "each"),
+        tt => panic!("Expected 'each', found {}", tt),
+    }
+    match token.next().unwrap() {
+        proc_macro2::TokenTree::Punct(punct) => assert_eq!(punct.as_char(), '='),
+        tt => panic!("Expected '=', found {}", tt),
+    }
+    let arg = match token.next().unwrap() {
+        proc_macro2::TokenTree::Literal(lit) => lit,
+        tt => panic!("Expected literal, found {}", tt),
+    };
+
+    match syn::Lit::new(arg) {
+        syn::Lit::Str(s) => {
+            let ident = syn::Ident::new(&s.value(), s.span());
+            let inner_ty = get_inner_ty("Vec", ty).unwrap();
+            let method = quote! {
+                pub fn #ident(&mut self, #ident: #inner_ty) -> &mut Self {
+                    self.#name.push(#ident);
+                    self
+                }
+            };
+            Some((Some(ident) == f.ident, method))
+        }
+        tt => panic!("Expected string, found {:?}", tt),
+    }
 }
 
 fn get_inner_ty<'a>(outer: &str, ty: &'a syn::Type) -> Option<&'a syn::Type> {
