@@ -25,21 +25,11 @@ pub fn derive(input: TokenStream) -> TokenStream {
         unimplemented!();
     };
 
-    let generic_params: Vec<_> = ast
-        .generics
-        .params
-        .iter()
-        .filter_map(|p| {
-            if let syn::GenericParam::Type(syn::TypeParam { ident, .. }) = p {
-                Some(ident)
-            } else {
-                None
-            }
-        })
-        .collect();
+    let generic_params = ast.generics.type_params();
 
-    let generic_bounds = generic_params
-        .iter()
+    let generic_bounds = ast
+        .generics
+        .type_params()
         .map(|ty| quote! { #ty: std::fmt::Debug });
 
     let fields = fields.iter().map(|f| {
