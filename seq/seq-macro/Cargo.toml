@@ -1,9 +1,12 @@
 [package]
-name = "seq"
+name = "seq-macro"
 version = "0.0.0"
 edition = "2018"
 autotests = false
 publish = false
+
+[lib]
+proc-macro = true
 
 [[test]]
 name = "tests"
@@ -17,4 +20,3 @@ quote = "1.0.2"
 syn = { version = "1.0.9", features = ["full"] }
 proc-macro2 = "1.0.6"
 proc-macro-hack = "0.5.11"
-seq-macro = { path = "./seq-macro" }
