@@ -95,7 +95,7 @@ impl Seq {
         match tt {
             TokenTree::Punct(c) if c.as_char() == '#' => match iter.peek() {
                 Some(TokenTree::Group(g)) if g.delimiter() == Delimiter::Parenthesis => {
-                    let tts = self.outer_pass(g.stream());
+                    let (tts, changed) = self.try_expand_inner(g.stream());
                     let new_g = Group::new(Delimiter::None, tts);
                     out.push(TokenTree::Group(new_g));
                     iter.next();
@@ -104,7 +104,7 @@ impl Seq {
                     } else {
                         panic!("Expected repetition");
                     }
-                    return true;
+                    return changed;
                 }
                 _ => out.extend(vec![TokenTree::Punct(c)]),
             },

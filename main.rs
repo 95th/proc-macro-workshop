@@ -6,20 +6,16 @@
 // To run the code:
 //     $ cargo run
 
-use derive_builder::Builder;
+use seq::seq;
 
-#[derive(Builder)]
-pub struct Command {
-    executable: String,
-    #[builder(each = "arg")]
-    args: Vec<String>,
-    #[builder(each = "env")]
-    env: Vec<String>,
-    current_dir: Option<String>,
-}
+seq!(N in 1..100 {
+    #(
+        fn f#N () -> u64 {
+            #( N + )* 2
+        }
+    )*
+});
 
 fn main() {
-    let builder = Command::builder();
-
-    let _ = builder;
+    println!("{}", f1());
 }
